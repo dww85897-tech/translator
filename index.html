@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>离线中英翻译</title>
+  <link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="离线翻译">
+<link rel="apple-touch-icon" href="icon.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -282,5 +287,12 @@
     // 页面打开时不自动加载，避免部分浏览器直接失败
     setStatus('请点击「加载 / 重新加载模型」开始（首次需联网）');
   </script>
+  <script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => console.log('Service Worker 注册成功'))
+    .catch(err => console.log('Service Worker 注册失败', err));
+}
+</script>
 </body>
 </html>
