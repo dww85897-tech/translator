@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>离线中英翻译</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f2f2f7;
+      color: #1c1c1e;
+      padding: 16px;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .container { max-width: 640px; margin: 0 auto; }
+    h1 {
+      text-align: center;
+      font-size: 1.35rem;
+      margin: 10px 0 18px;
+      font-weight: 600;
+    }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    label {
+      display: block;
+      font-size: 0.88rem;
+      color: #8e8e93;
+      margin-bottom: 8px;
+    }
+    select, textarea, button {
+      width: 100%;
+      font-size: 16px;
+      border-radius: 11px;
+      border: 1px solid #d1d1d6;
+      padding: 12px;
+      outline: none;
+      background: #fff;
+    }
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+    button {
+      background: #007aff;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #c7c7cc;
+      color: #fff;
+      cursor: not-allowed;
+    }
+    .secondary {
+      background: #e5e5ea;
+      color: #1c1c1e;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .row button {
+      flex: 1;
+      margin-top: 0;
+    }
+    .status {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #666;
+      margin: 12px 0 6px;
+      min-height: 22px;
+      word-break: break-all;
+    }
+    .progress {
+      height: 6px;
+      background: #e5e5ea;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #007aff;
+      width: 0%;
+      transition: width 0.25s;
+    }
+    .tip {
+      font-size: 0.8rem;
+      color: #8e8e93;
+      text-align: center;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>离线中英翻译</h1>
+
+    <div class="card">
+      <label>翻译方向</label>
+      <select id="direction">
+        <option value="zh-en">中文 → 英文</option>
+        <option value="en-zh">英文 → 中文</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <label>输入文字</label>
+      <textarea id="input" placeholder="请输入要翻译的内容..."></textarea>
+      <div class="row">
+        <button id="translateBtn" disabled>翻译</button>
+        <button class="secondary" id="clearBtn">清空</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>翻译结果</label>
+      <textarea id="output" readonly placeholder="翻译结果会显示在这里"></textarea>
+      <button class="secondary" id="copyBtn">复制结果</button>
+    </div>
+
+    <div class="status" id="status">点击下方按钮加载模型（首次需要联网）</div>
+    <div class="progress" id="progress">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <button id="loadBtn">加载 / 重新加载模型</button>
+    <p class="tip">首次使用需联网下载模型，下载完成后即可断网使用</p>
+  </div>
+
+  <script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+    env.useBrowserCache = true;
+
+    const directionEl = document.getElementById('direction');
+    const inputEl = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+    const translateBtn = document.getElementById('translateBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const loadBtn = document.getElementById('loadBtn');
+    const statusEl = document.getElementById('status');
+    const progressEl = document.getElementById('progress');
+    const progressBar = document.getElementById('progressBar');
+
+    let zh2en = null;
+    let en2zh = null;
+    let isLoading = false;
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    function showProgress(p) {
+      progressEl.style.display = 'block';
+      progressBar.style.width = Math.min(100, Math.max(0, p)) + '%';
+    }
+
+    function hideProgress() {
+      progressEl.style.display = 'none';
+    }
+
+    async function loadModel(direction) {
+      if (isLoading) return null;
+
+      const isZh2En = direction === 'zh-en';
+      if (isZh2En && zh2en) return zh2en;
+      if (!isZh2En && en2zh) return en2zh;
+
+      isLoading = true;
+      translateBtn.disabled = true;
+      loadBtn.disabled = true;
+
+      const modelName = isZh2En ? 'Xenova/opus-mt-zh-en' : 'Xenova/opus-mt-en-zh';
+      const dirText = isZh2En ? '中文→英文' : '英文→中文';
+
+      setStatus('正在加载「' + dirText + '」模型，请保持网络连接...');
+      showProgress(0);
+
+      try {
+        const translator = await pipeline('translation', modelName, {
+          progress_callback: (data) => {
+            if (data.status === 'progress' && typeof data.progress === 'number') {
+              const p = Math.round(data.progress);
+              showProgress(p);
+              setStatus('下载中 ' + p + '%（' + dirText + '）');
+            } else if (data.status === 'done') {
+              setStatus('模型文件下载完成，正在初始化...');
+            }
+          }
+        });
+
+        if (isZh2En) zh2en = translator;
+        else en2zh = translator;
+
+        hideProgress();
+        setStatus('「' + dirText + '」模型加载成功，可以开始翻译（之后可断网使用）');
+        translateBtn.disabled = false;
+        return translator;
+      } catch (err) {
+        console.error(err);
+        hideProgress();
+        setStatus('加载失败：' + (err.message || err) + '。请检查网络后点击「加载模型」重试');
+        return null;
+      } finally {
+        isLoading = false;
+        loadBtn.disabled = false;
+      }
+    }
+
+    loadBtn.addEventListener('click', () => {
+      loadModel(directionEl.value);
+    });
+
+    directionEl.addEventListener('change', () => {
+      translateBtn.disabled = true;
+      setStatus('方向已切换，请重新点击「加载模型」');
+    });
+
+    translateBtn.addEventListener('click', async () => {
+      const text = inputEl.value.trim();
+      if (!text) {
+        setStatus('请先输入要翻译的内容');
+        return;
+      }
+
+      translateBtn.disabled = true;
+      setStatus('正在翻译，请稍候...');
+
+      try {
+        const translator = await loadModel(directionEl.value);
+        if (!translator) {
+          setStatus('模型未就绪，请先成功加载模型');
+          return;
+        }
+
+        const result = await translator(text, { max_new_tokens: 256 });
+        const translated = (result[0] && (result[0].translation_text || result[0].generated_text)) || String(result);
+        outputEl.value = translated;
+        setStatus('翻译完成');
+      } catch (err) {
+        console.error(err);
+        setStatus('翻译出错：' + (err.message || err));
+      } finally {
+        translateBtn.disabled = false;
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      inputEl.value = '';
+      outputEl.value = '';
+      setStatus('已清空');
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = outputEl.value;
+      if (!text) {
+        setStatus('没有可复制的内容');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus('已复制到剪贴板');
+      } catch (e) {
+        setStatus('复制失败，请长按结果手动复制');
+      }
+    });
+
+    // 页面打开时不自动加载，避免部分浏览器直接失败
+    setStatus('请点击「加载 / 重新加载模型」开始（首次需联网）');
+  </script>
+</body>
+</html>
